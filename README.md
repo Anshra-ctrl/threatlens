@@ -70,3 +70,13 @@ Lines in other formats are skipped and counted on the dashboard.
 - Add more log types (Windows event logs, web server logs)
 - Add IP reputation or geolocation lookups
 - Send alerts to email or Slack
+
+
+## What I added and learned
+
+- **Root login rule.** I added a new detection rule to `detector.py`: a successful direct login as `root` raises a high-severity alert (MITRE ATT&CK T1078), because root should rarely log in over SSH. I tested it in the dashboard, and the project's test suite covers it.
+- **Threshold tuning.** I experimented with the brute-force threshold (5 vs 3 failed logins). A lower number catches attackers sooner, but it also flags people who just mistyped their password. Detection is always a trade-off between missed attacks and false alarms.
+- **Code quality and security checks.** I ran Pylint, Black and Bandit, fixed what they found, and improved the Sentrix analysis score from B (82.5%) to A+ (99.4%).
+- **Brute force vs password spraying.** Brute force hammers one account with many guesses. Password spraying tries a few passwords against many accounts, which avoids lockouts and is harder to spot. ThreatLens tells them apart by checking whether the failures hit one account or many.
+
+Built with help from an AI assistant (Claude). I added the root login rule, tuned and tested it, and set up the project on GitHub.
