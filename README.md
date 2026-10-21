@@ -1,4 +1,7 @@
 # ThreatLens
+![ThreatLens dashboard](screenshot.png)
+
+![ThreatLens alerts](alerts.png)
 
 A mini SOC tool. Paste or upload SSH login logs and ThreatLens finds who is attacking, which accounts are at risk, and what to do next. Python standard library only, so there is nothing to install.
 
