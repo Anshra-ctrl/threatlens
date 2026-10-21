@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ThreatLens - SSH log analysis</title>
+<style>
+:root {
+  --paper: #edf1f5;
+  --panel: #ffffff;
+  --ink: #14202e;
+  --muted: #526173;
+  --line: #d3dce6;
+  --accent: #0e5a78;
+  --critical: #b3202e;
+  --high: #c2410c;
+  --medium: #8f5f08;
+  --low: #526173;
+  --ok: #3b6ea5;
+  --good: #2f7d5b;
+  --serif: Georgia, "Times New Roman", serif;
+  --sans: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+  --mono: "Cascadia Mono", "SF Mono", Consolas, "Liberation Mono", monospace;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--paper); color: var(--ink); font: 15px/1.55 var(--sans); }
+.shell { max-width: 1240px; margin: 0 auto; padding: 28px 20px 56px; }
+header { margin-bottom: 22px; }
+h1 { font: 700 32px/1.15 var(--serif); margin: 0 0 6px; letter-spacing: -0.01em; }
+h2 { font: 700 19px/1.3 var(--serif); margin: 0 0 12px; }
+header p { margin: 0; color: var(--muted); max-width: 62ch; }
+.layout { display: grid; grid-template-columns: minmax(300px, 360px) 1fr; gap: 20px; align-items: start; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 18px; }
+.input-panel { position: sticky; top: 16px; }
+label.field { display: block; font-weight: 600; margin-bottom: 6px; }
+textarea {
+  width: 100%; min-height: 250px; resize: vertical; padding: 10px;
+  font: 12.5px/1.5 var(--mono); color: var(--ink); background: #fbfcfd;
+  border: 1px solid var(--line); border-radius: 6px;
+}
+.hint { color: var(--muted); font-size: 13px; margin: 8px 0 14px; }
+.hint code { font: 12px var(--mono); background: #eef2f6; padding: 1px 4px; border-radius: 3px; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; min-height: 40px;
+  padding: 0 14px; font: 600 14px var(--sans); border-radius: 6px; cursor: pointer;
+  border: 1px solid var(--accent); background: #fff; color: var(--accent);
+}
+.btn.primary { background: var(--accent); color: #fff; }
+.btn:disabled { opacity: 0.55; cursor: progress; }
+.btn:hover:not(:disabled) { filter: brightness(0.96); }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+a:focus-visible, button:focus-visible, textarea:focus-visible, summary:focus-visible, .sr:focus-visible + label.btn {
+  outline: 3px solid #f2a900; outline-offset: 2px;
+}
+#status { min-height: 22px; margin: 12px 0 0; font-size: 14px; color: var(--muted); }
+#status.error { color: var(--critical); font-weight: 600; }
+
+.empty { border: 2px dashed var(--line); border-radius: 10px; padding: 48px 24px; text-align: center; color: var(--muted); background: transparent; }
+.empty strong { display: block; color: var(--ink); font: 700 20px var(--serif); margin-bottom: 6px; }
+
+.results { display: grid; gap: 20px; }
+.risk-row { display: grid; grid-template-columns: 200px 1fr; gap: 22px; align-items: center; }
+.ring { text-align: center; }
+.ring svg { display: block; margin: 0 auto; }
+.ring-fg { transition: stroke-dashoffset 0.9s ease-out; }
+.ring-num { font: 700 36px var(--serif); fill: var(--ink); }
+.ring-sub { font: 12px var(--sans); fill: var(--muted); }
+.level { font: 700 18px var(--serif); margin-top: 4px; }
+dl.stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 0; }
+dl.stats div { border-left: 3px solid var(--line); padding-left: 10px; }
+dl.stats dt { color: var(--muted); font-size: 13px; }
+dl.stats dd { margin: 0; font: 700 22px var(--serif); }
+dl.stats dd.small { font: 600 13px var(--mono); }
+.range { margin-top: 14px; color: var(--muted); font-size: 13px; }
+
+.panel-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.legend { display: flex; gap: 14px; font-size: 13px; color: var(--muted); }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+.chart svg { width: 100%; height: auto; display: block; }
+.chart text { font: 11px var(--sans); fill: var(--muted); }
+
+details.alert { --sev: var(--low); border: 1px solid var(--line); border-left: 5px solid var(--sev); border-radius: 8px; background: #fff; margin-bottom: 10px; }
+details.alert.critical { --sev: var(--critical); }
+details.alert.high { --sev: var(--high); }
+details.alert.medium { --sev: var(--medium); }
+details.alert summary { cursor: pointer; padding: 12px 14px; display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: baseline; list-style: none; }
+details.alert summary::-webkit-details-marker { display: none; }
+details.alert summary::before { content: "+"; font: 700 16px var(--mono); color: var(--sev); width: 14px; }
+details.alert[open] summary::before { content: "-"; }
+.sev { font-weight: 700; color: var(--sev); }
+.atype { font-weight: 600; }
+.mono { font-family: var(--mono); font-size: 13px; }
+.when { color: var(--muted); margin-left: auto; }
+.alert-body { padding: 0 14px 14px 40px; }
+.alert-body p { margin: 0 0 8px; }
+.tag { display: inline-block; font: 12px var(--mono); border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px; color: var(--muted); }
+
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th { font-weight: 600; color: var(--muted); }
+td.num, th.num { text-align: right; }
+ol.recs { margin: 0; padding-left: 20px; }
+ol.recs li { margin-bottom: 6px; }
+
+@media (max-width: 900px) {
+  .layout { grid-template-columns: 1fr; }
+  .input-panel { position: static; }
+  .risk-row { grid-template-columns: 1fr; }
+  dl.stats { grid-template-columns: repeat(2, 1fr); }
+  .when { margin-left: 0; }
+}
+@media (prefers-reduced-motion: reduce) { .ring-fg { transition: none; } }
+</style>
+</head>
+<body>
+<div class="shell">
+  <header>
+    <h1>ThreatLens</h1>
+    <p>Paste your SSH login logs and see who is attacking, which accounts are at risk, and what to do next.</p>
+  </header>
+
+  <div class="layout">
+    <section class="panel input-panel" aria-label="Log input">
+      <label class="field" for="log">SSH log lines</label>
+      <textarea id="log" spellcheck="false" placeholder="2026-10-08 02:10:05 web-01 sshd[4121]: Failed password for invalid user root from 185.220.101.4 port 40022 ssh2"></textarea>
+      <p class="hint">One event per line. Format: <code>date time host sshd[pid]: Failed|Accepted password for user from IP port N</code>. Lines in other formats are skipped and counted.</p>
+      <div class="actions">
+        <button class="btn primary" id="analyze" type="button">Analyze logs</button>
+        <button class="btn" id="sample" type="button">Load sample logs</button>
+        <input class="sr" id="file" type="file" accept=".log,.txt,text/plain">
+        <label class="btn" for="file">Upload a file</label>
+      </div>
+      <p id="status" role="status" aria-live="polite"></p>
+    </section>
+
+    <main id="results" class="results" aria-live="polite">
+      <div class="empty">
+        <strong>No analysis yet</strong>
+        Select Load sample logs to see a demo, or paste your own logs and select Analyze logs.
+      </div>
+    </main>
+  </div>
+</div>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const COLORS = { critical: "#b3202e", high: "#c2410c", medium: "#8f5f08", low: "#526173" };
+const LEVEL_COLORS = { Critical: "#b3202e", High: "#c2410c", Elevated: "#8f5f08", Low: "#2f7d5b", "No data": "#526173" };
+let lastReport = null;
+
+function el(tag, props, ...kids) {
+  const node = document.createElement(tag);
+  for (const [k, v] of Object.entries(props || {})) {
+    if (k === "class") node.className = v;
+    else node.setAttribute(k, String(v));
+  }
+  for (const kid of kids) if (kid !== null && kid !== undefined) node.append(kid);
+  return node;
+}
+
+function svgEl(tag, attrs, ...kids) {
+  const node = document.createElementNS("http://www.w3.org/2000/svg", tag);
+  for (const [k, v] of Object.entries(attrs || {})) node.setAttribute(k, String(v));
+  for (const kid of kids) if (kid !== null && kid !== undefined) node.append(kid);
+  return node;
+}
+
+function setStatus(message, isError) {
+  const s = $("status");
+  s.textContent = message;
+  s.className = isError ? "error" : "";
+}
+
+async function runAnalysis() {
+  const text = $("log").value;
+  if (!text.trim()) { setStatus("Paste some logs or load the sample first.", true); return; }
+  setStatus("Analyzing...");
+  $("analyze").disabled = true;
+  try {
+    const res = await fetch("/api/analyze", { method: "POST", headers: { "Content-Type": "text/plain" }, body: text });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Analysis failed.");
+    lastReport = data;
+    render(data);
+    setStatus("Analyzed " + data.summary.events.toLocaleString() + " login events.");
+  } catch (err) {
+    setStatus(err.message || "Could not reach the ThreatLens server. Is app.py running?", true);
+  } finally {
+    $("analyze").disabled = false;
+  }
+}
+
+async function loadSample() {
+  setStatus("Loading sample logs...");
+  try {
+    const res = await fetch("/api/sample");
+    if (!res.ok) throw new Error("Could not load the sample logs.");
+    $("log").value = await res.text();
+    await runAnalysis();
+  } catch (err) {
+    setStatus(err.message || "Could not reach the ThreatLens server. Is app.py running?", true);
+  }
+}
+
+function onFile(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => { $("log").value = String(reader.result); runAnalysis(); };
+  reader.onerror = () => setStatus("Could not read that file.", true);
+  reader.readAsText(file);
+  event.target.value = "";
+}
+
+function riskRing(score, level) {
+  const R = 54, C = 2 * Math.PI * R, color = LEVEL_COLORS[level] || LEVEL_COLORS.Low;
+  const svg = svgEl("svg", { viewBox: "0 0 140 140", width: 140, height: 140, role: "img", "aria-label": "Risk score " + score + " out of 100, " + level });
+  svg.append(svgEl("circle", { cx: 70, cy: 70, r: R, fill: "none", stroke: "#e3e9ef", "stroke-width": 12 }));
+  const arc = svgEl("circle", { class: "ring-fg", cx: 70, cy: 70, r: R, fill: "none", stroke: color, "stroke-width": 12, "stroke-linecap": "round", "stroke-dasharray": C, transform: "rotate(-90 70 70)" });
+  arc.style.strokeDashoffset = C;
+  svg.append(arc);
+  svg.append(svgEl("text", { x: 70, y: 79, "text-anchor": "middle", class: "ring-num" }, String(score)));
+  svg.append(svgEl("text", { x: 70, y: 99, "text-anchor": "middle", class: "ring-sub" }, "out of 100"));
+  requestAnimationFrame(() => requestAnimationFrame(() => { arc.style.strokeDashoffset = C * (1 - score / 100); }));
+  return svg;
+}
+
+function statItem(label, value, small) {
+  return el("div", {}, el("dt", {}, label), el("dd", small ? { class: "small" } : {}, value));
+}
+
+function summaryPanel(s) {
+  const stats = el("dl", { class: "stats" },
+    statItem("Login events", s.events.toLocaleString()),
+    statItem("Failed logins", s.failed.toLocaleString()),
+    statItem("Successful logins", s.accepted.toLocaleString()),
+    statItem("Unique IP addresses", s.unique_ips.toLocaleString()),
+    statItem("Alerts raised", s.alert_count.toLocaleString()),
+    statItem("Lines skipped", s.skipped.toLocaleString())
+  );
+  const right = el("div", {}, stats);
+  if (s.first_seen) right.append(el("p", { class: "range" }, "Covers " + s.first_seen + " to " + s.last_seen));
+  const ring = el("div", { class: "ring" }, riskRing(s.risk_score, s.risk_level), el("div", { class: "level" }, s.risk_level + " risk"));
+  return el("section", { class: "panel risk-row", "aria-label": "Risk summary" }, ring, right);
+}
+
+function timelinePanel(timeline) {
+  const pts = timeline.points;
+  const head = el("div", { class: "panel-head" },
+    el("h2", {}, timeline.bucket === "day" ? "Login activity by day" : "Login activity by hour"),
+    el("div", { class: "legend" },
+      el("span", {}, el("i", { style: "background:#b3202e" }), "Failed"),
+      el("span", {}, el("i", { style: "background:#3b6ea5" }), "Successful")));
+  const panel = el("section", { class: "panel", "aria-label": "Activity timeline" }, head);
+  if (!pts.length) return panel;
+
+  const W = 720, H = 190, L = 40, T = 10, B = 26, plotW = W - L - 8, plotH = H - T - B;
+  const max = Math.max(1, ...pts.map((p) => p.failed + p.accepted));
+  const slot = plotW / pts.length, bar = Math.max(1, slot * 0.78);
+  const svg = svgEl("svg", { viewBox: "0 0 " + W + " " + H, role: "img", "aria-label": "Stacked bar chart of failed and successful logins over time" });
+  svg.append(svgEl("line", { x1: L, y1: T + plotH, x2: W - 8, y2: T + plotH, stroke: "#c3ced9" }));
+  svg.append(svgEl("text", { x: L - 6, y: T + 9, "text-anchor": "end" }, String(max)));
+  svg.append(svgEl("text", { x: L - 6, y: T + plotH, "text-anchor": "end" }, "0"));
+  pts.forEach((p, i) => {
+    const x = L + i * slot + (slot - bar) / 2;
+    const hOk = (p.accepted / max) * plotH, hFail = (p.failed / max) * plotH;
+    const g = svgEl("g", {}, svgEl("title", {}, p.label + ": " + p.failed + " failed, " + p.accepted + " successful"));
+    if (hOk > 0) g.append(svgEl("rect", { x, y: T + plotH - hOk, width: bar, height: hOk, fill: "#3b6ea5" }));
+    if (hFail > 0) g.append(svgEl("rect", { x, y: T + plotH - hOk - hFail, width: bar, height: hFail, fill: "#b3202e" }));
+    svg.append(g);
+  });
+  const short = (label) => (timeline.bucket === "day" ? label : label.slice(5));
+  const marks = [0, Math.floor((pts.length - 1) / 2), pts.length - 1].filter((v, i, a) => a.indexOf(v) === i);
+  marks.forEach((i) => {
+    const anchor = i === 0 ? "start" : i === pts.length - 1 ? "end" : "middle";
+    const x = i === 0 ? L : i === pts.length - 1 ? W - 8 : L + i * slot + slot / 2;
+    svg.append(svgEl("text", { x, y: H - 8, "text-anchor": anchor }, short(pts[i].label)));
+  });
+  panel.append(el("div", { class: "chart" }, svg));
+  return panel;
+}
+
+function alertsPanel(alerts) {
+  const panel = el("section", { class: "panel", "aria-label": "Alerts" }, el("h2", {}, "Alerts (" + alerts.length + ")"));
+  if (!alerts.length) {
+    panel.append(el("p", {}, "No suspicious patterns were found in these logs."));
+    return panel;
+  }
+  for (const a of alerts) {
+    const who = a.user ? a.ip + " as " + a.user : a.ip;
+    const d = el("details", { class: "alert " + a.severity });
+    if (a.severity === "critical") d.setAttribute("open", "");
+    d.append(el("summary", {},
+      el("span", { class: "sev" }, a.severity.charAt(0).toUpperCase() + a.severity.slice(1)),
+      el("span", { class: "atype" }, a.type),
+      el("span", { class: "mono" }, who),
+      el("span", { class: "when mono" }, a.time)));
+    d.append(el("div", { class: "alert-body" },
+      el("p", {}, a.detail),
+      el("p", {}, el("strong", {}, "What to do: "), a.action),
+      el("span", { class: "tag" }, "MITRE ATT&CK " + a.mitre_id + " " + a.mitre_name)));
+    panel.append(d);
+  }
+  return panel;
+}
+
+function sourcesPanel(sources) {
+  const panel = el("section", { class: "panel", "aria-label": "Most active sources" }, el("h2", {}, "Most active sources"));
+  if (!sources.length) {
+    panel.append(el("p", {}, "No failed logins to show."));
+    return panel;
+  }
+  const head = el("tr", {}, el("th", {}, "IP address"), el("th", { class: "num" }, "Failed"), el("th", { class: "num" }, "Successful"), el("th", { class: "num" }, "Accounts tried"));
+  const body = el("tbody");
+  for (const s of sources) {
+    body.append(el("tr", {}, el("td", { class: "mono" }, s.ip), el("td", { class: "num" }, String(s.failed)), el("td", { class: "num" }, String(s.accepted)), el("td", { class: "num" }, String(s.accounts))));
+  }
+  panel.append(el("div", { class: "table-wrap" }, el("table", {}, el("thead", {}, head), body)));
+  return panel;
+}
+
+function recsPanel(recs) {
+  const list = el("ol", { class: "recs" });
+  for (const r of recs) list.append(el("li", {}, r));
+  return el("section", { class: "panel", "aria-label": "Recommended next steps" }, el("h2", {}, "Recommended next steps"), list);
+}
+
+function downloadReport() {
+  if (!lastReport) return;
+  const blob = new Blob([JSON.stringify(lastReport, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = el("a", { href: url, download: "threatlens-report.json" });
+  document.body.append(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function render(report) {
+  const box = $("results");
+  box.replaceChildren();
+  const s = report.summary;
+  if (!s.events) {
+    box.append(el("div", { class: "empty" },
+      el("strong", {}, "No login events recognised"),
+      "ThreatLens skipped " + s.skipped + " line(s). Check that your logs match the format shown on the left."));
+    return;
+  }
+  box.append(summaryPanel(s), timelinePanel(report.timeline), alertsPanel(report.alerts), sourcesPanel(report.top_sources), recsPanel(report.recommendations));
+  const save = el("button", { class: "btn", type: "button" }, "Download report (JSON)");
+  save.addEventListener("click", downloadReport);
+  box.append(el("div", {}, save));
+}
+
+$("analyze").addEventListener("click", runAnalysis);
+$("sample").addEventListener("click", loadSample);
+$("file").addEventListener("change", onFile);
+$("log").addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) runAnalysis(); });
+</script>
+</body>
+</html>
